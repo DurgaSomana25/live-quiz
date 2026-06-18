@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live Quiz</title>
+  <link rel="stylesheet" href="/app/style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- NAV -->
+  <nav id="nav" class="hidden">
+    <span class="nav-brand">⚡ Live Quiz</span>
+    <div class="nav-user">
+      <span id="nav-username"></span>
+      <span id="nav-role" class="badge"></span>
+      <button class="btn btn-ghost btn-sm" onclick="logout()">Logout</button>
+    </div>
+  </nav>
+
+  <main>
+
+    <!-- ── AUTH ─────────────────────────────────────────────── -->
+    <div id="screen-auth" class="screen">
+      <div class="auth-wrap">
+        <div class="auth-card">
+          <div class="auth-logo">
+            <h1>⚡ Live Quiz</h1>
+            <p>Real-time synchronized quiz platform</p>
+          </div>
+
+          <div class="tabs">
+            <button id="tab-login" class="tab-btn active">Login</button>
+            <button id="tab-register" class="tab-btn">Register</button>
+          </div>
+
+          <form id="form-login" onsubmit="handleLogin(event)">
+            <div class="form-group">
+              <label>Email</label>
+              <input id="login-email" type="email" placeholder="you@example.com" required>
+            </div>
+            <div class="form-group">
+              <label>Password</label>
+              <input id="login-password" type="password" placeholder="Password" required>
+            </div>
+            <button type="submit" class="btn btn-primary btn-full">Login</button>
+          </form>
+
+          <form id="form-register" class="hidden" onsubmit="handleRegister(event)">
+            <div class="form-group">
+              <label>Email</label>
+              <input id="reg-email" type="email" placeholder="you@example.com" required>
+            </div>
+            <div class="form-group">
+              <label>Username</label>
+              <input id="reg-username" type="text" placeholder="username" required>
+            </div>
+            <div class="form-group">
+              <label>Password</label>
+              <input id="reg-password" type="password" placeholder="Password" required>
+            </div>
+            <div class="form-group">
+              <label>Role</label>
+              <select id="reg-role">
+                <option value="participant">Participant</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <button type="submit" class="btn btn-primary btn-full">Register</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── PARTICIPANT DASHBOARD ─────────────────────────────── -->
+    <div id="screen-pdash" class="screen hidden">
+      <div class="page-header">
+        <h1 class="page-title">Available Quizzes</h1>
+        <button class="btn btn-ghost btn-sm" onclick="loadDash()">↻ Refresh</button>
+      </div>
+      <div id="pdash-list" class="quiz-grid">
+        <p style="color:var(--muted)">Loading...</p>
+      </div>
+    </div>
+
+    <!-- ── ADMIN PANEL ───────────────────────────────────────── -->
+    <div id="screen-admin" class="screen hidden">
+      <div class="page-header">
+        <h1 class="page-title">Admin Panel</h1>
+        <button class="btn btn-primary btn-sm" onclick="openModal()">+ Create Quiz</button>
+      </div>
+
+      <div class="admin-tabs">
+        <button class="a-tab active" data-tab="quizzes"  onclick="loadAdmin('quizzes')">Quizzes</button>
+        <button class="a-tab"        data-tab="sessions" onclick="loadAdmin('sessions')">All Sessions</button>
+      </div>
+
+      <div id="admin-content">
+        <p style="color:var(--muted)">Loading...</p>
+      </div>
+    </div>
+
+    <!-- ── WAITING ROOM ──────────────────────────────────────── -->
+    <div id="screen-waiting" class="screen hidden">
+      <div class="waiting-wrap">
+        <div class="waiting-icon">⏳</div>
+        <div>
+          <h2 class="waiting-title" id="waiting-title">Quiz</h2>
+          <p class="waiting-subtitle">Waiting for admin to start…</p>
+        </div>
+        <div class="ws-pill">
+          <div id="ws-dot" class="ws-dot"></div>
+          <span id="ws-txt">Connecting…</span>
+        </div>
+        <p style="font-size:.8125rem;color:var(--muted)">The quiz starts simultaneously for everyone.</p>
+        <button class="btn btn-ghost btn-sm" onclick="loadDash()">← Back to Dashboard</button>
+      </div>
+    </div>
+
+    <!-- ── QUIZ SCREEN ───────────────────────────────────────── -->
+    <div id="screen-quiz" class="screen hidden">
+      <div style="max-width:640px;margin:0 auto">
+
+        <div class="quiz-top">
+          <span id="quiz-title-label" class="quiz-label"></span>
+          <span id="quiz-progress"    class="quiz-progress">Q 1 / 10</span>
+        </div>
+
+        <div class="timer-wrap">
+          <div class="timer-track">
+            <div id="timer-fill" class="timer-fill" style="width:100%"></div>
+          </div>
+          <div id="timer-num" class="timer-num t-ok">00:30</div>
+        </div>
+
+        <div class="q-card">
+          <p id="q-text" class="q-text">Loading question…</p>
+          <div id="opts" class="opts"></div>
+        </div>
+
+        <div class="submit-row">
+          <button id="submit-btn" class="btn btn-primary btn-lg" onclick="doSubmit()" disabled>
+            Submit Answer
+          </button>
+          <div id="answered-msg" class="answered-banner hidden">
+            ✓ Answer submitted — next question coming soon
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── RESULTS ───────────────────────────────────────────── -->
+    <div id="screen-results" class="screen hidden">
+      <div class="results-wrap">
+        <div id="results-body">
+          <p style="color:var(--muted)">Loading results…</p>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div><!-- #app -->
+
+<!-- ── CREATE QUIZ MODAL ─────────────────────────────────────── -->
+<div id="create-modal" class="overlay hidden" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <span class="modal-title">Create New Quiz</span>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+
+    <div class="form-group">
+      <label>Quiz Title *</label>
+      <input id="cq-title" type="text" placeholder="e.g. Python Basics">
+    </div>
+    <div class="form-group">
+      <label>Description</label>
+      <input id="cq-desc"  type="text" placeholder="Optional description">
+    </div>
+    <div class="modal-2col">
+      <div class="form-group">
+        <label>Seconds per Question</label>
+        <input id="cq-duration" type="number" value="30" min="5" max="300">
+      </div>
+      <div class="form-group">
+        <label>Pass Marks</label>
+        <input id="cq-pass" type="number" value="4">
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.625rem">
+      <strong style="font-size:.875rem">Questions</strong>
+      <button class="btn btn-ghost btn-sm" onclick="addQ()">+ Add Question</button>
+    </div>
+
+    <div id="q-builder"></div>
+
+    <div style="display:flex;gap:.75rem;justify-content:flex-end;margin-top:1.5rem">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitQuiz()">Create Quiz</button>
+    </div>
+  </div>
+</div>
+
+<script src="/app/app.js"></script>
+</body>
+</html>

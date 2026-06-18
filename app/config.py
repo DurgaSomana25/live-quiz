@@ -3,7 +3,7 @@ from typing import Optional
 
 class Settings(BaseSettings):
     # Database - Use SQLite by default for development
-    DATABASE_URL: str = "sqlite:///./live_quiz.db"
+    DATABASE_URL: str
     
     # JWT
     SECRET_KEY: str = "your-secret-key-change-this"

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import get_db
-from app.models import User, Quiz, QuizSession, Answer, Leaderboard
+from app.models import User, Quiz, QuizSession, Answer, RoleEnum
 from app.schemas import LeaderboardResponse, LeaderboardEntry
 from app.auth.jwt_handler import get_current_user
 
@@ -51,7 +51,7 @@ async def get_user_quiz_results(
     db: Session = Depends(get_db)
 ):
     """Get all quiz results for a user"""
-    if current_user.id != user_id and current_user.role not in ["admin", "moderator"]:
+    if current_user.id != user_id and current_user.role != RoleEnum.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Unauthorized"

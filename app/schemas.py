@@ -5,7 +5,6 @@ from enum import Enum
 
 class RoleEnum(str, Enum):
     ADMIN = "admin"
-    MODERATOR = "moderator"
     PARTICIPANT = "participant"
 
 # User Schemas
@@ -80,8 +79,10 @@ class QuizResponse(BaseModel):
     pass_marks: int
     question_duration: int
     is_active: bool
+    quiz_status: str
+    started_at: Optional[datetime]
     created_at: datetime
-    
+
     class Config:
         from_attributes = True
 
@@ -120,6 +121,25 @@ class QuizSessionResult(BaseModel):
     pass_marks: int
     correct_answers: int
     total_questions: int
+
+# Join / Current Question Schemas
+class JoinQuizResponse(BaseModel):
+    session_id: int
+    quiz_id: int
+    quiz_status: str
+    session_status: str
+    message: str
+    websocket_url: str
+
+class CurrentQuestionResponse(BaseModel):
+    status: str  # waiting | active | ended
+    question: Optional[QuestionResponse] = None
+    question_number: Optional[int] = None
+    total_questions: Optional[int] = None
+    time_remaining: Optional[int] = None
+    already_answered: Optional[bool] = None
+    result: Optional[QuizSessionResult] = None
+    message: Optional[str] = None
 
 # Leaderboard Schemas
 class LeaderboardEntry(BaseModel):

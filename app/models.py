@@ -6,7 +6,6 @@ from app.database import Base
 
 class RoleEnum(str, enum.Enum):
     ADMIN = "admin"
-    MODERATOR = "moderator"
     PARTICIPANT = "participant"
 
 class User(Base):
@@ -32,8 +31,10 @@ class Quiz(Base):
     total_questions = Column(Integer, default=10)
     marks_per_question = Column(Integer, default=2)
     pass_marks = Column(Integer, default=14)
-    question_duration = Column(Integer, default=30)  # seconds
+    question_duration = Column(Integer, default=30)  # seconds per question
     is_active = Column(Boolean, default=True)
+    quiz_status = Column(String, default="pending")  # pending, active, ended
+    started_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     created_by = Column(Integer, ForeignKey("users.id"))
     
@@ -68,7 +69,7 @@ class QuizSession(Base):
     ended_at = Column(DateTime, nullable=True)
     total_score = Column(Float, default=0.0)
     passed = Column(Boolean, nullable=True)
-    status = Column(String, default="ongoing")  # ongoing, completed, abandoned
+    status = Column(String, default="ongoing")  # waiting, ongoing, completed, abandoned
     
     quiz = relationship("Quiz", back_populates="sessions")
     participant = relationship("User", back_populates="quiz_sessions")
@@ -90,13 +91,3 @@ class Answer(Base):
     question = relationship("Question", back_populates="answers")
     user = relationship("User", back_populates="answers")
 
-class Leaderboard(Base):
-    __tablename__ = "leaderboards"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    quiz_id = Column(Integer, ForeignKey("quizzes.id"))
-    user_id = Column(Integer, ForeignKey("users.id"))
-    score = Column(Float)
-    rank = Column(Integer)
-    passed = Column(Boolean)
-    updated_at = Column(DateTime, default=datetime.utcnow)

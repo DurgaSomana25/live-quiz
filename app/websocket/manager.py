@@ -1,57 +1,56 @@
 from fastapi import WebSocket
-from typing import Dict, List, Set
-import asyncio
-import json
-from datetime import datetime
+from typing import Dict, Set
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class ConnectionManager:
-    """Manages WebSocket connections for real-time quiz sessions"""
-    
+    """
+    Manages WebSocket connections grouped by quiz_id (not session_id).
+    All participants in the same quiz are in the same room and receive
+    the same broadcasts — question transitions, quiz start/end events.
+    """
+
     def __init__(self):
-        # {session_id: set(WebSocket)}
-        self.active_connections: Dict[int, Set[WebSocket]] = {}
-        # {session_id: question_number}
-        self.current_question: Dict[int, int] = {}
-        # {session_id: asyncio.Task}
-        self.question_timers: Dict[int, asyncio.Task] = {}
-    
-    async def connect(self, websocket: WebSocket, session_id: int):
+        # {quiz_id: set(WebSocket)}
+        self.quiz_rooms: Dict[int, Set[WebSocket]] = {}
+
+    async def connect(self, websocket: WebSocket, quiz_id: int):
         await websocket.accept()
-        if session_id not in self.active_connections:
-            self.active_connections[session_id] = set()
-        self.active_connections[session_id].add(websocket)
-    
-    def disconnect(self, websocket: WebSocket, session_id: int):
-        if session_id in self.active_connections:
-            self.active_connections[session_id].discard(websocket)
-            if not self.active_connections[session_id]:
-                del self.active_connections[session_id]
-    
-    async def broadcast(self, session_id: int, message: dict):
-        """Broadcast message to all participants in a session"""
-        if session_id not in self.active_connections:
+        if quiz_id not in self.quiz_rooms:
+            self.quiz_rooms[quiz_id] = set()
+        self.quiz_rooms[quiz_id].add(websocket)
+        logger.info(f"WS connected to quiz {quiz_id} — room size: {self.get_participant_count(quiz_id)}")
+
+    def disconnect(self, websocket: WebSocket, quiz_id: int):
+        if quiz_id in self.quiz_rooms:
+            self.quiz_rooms[quiz_id].discard(websocket)
+            if not self.quiz_rooms[quiz_id]:
+                del self.quiz_rooms[quiz_id]
+        logger.info(f"WS disconnected from quiz {quiz_id}")
+
+    async def broadcast_to_quiz(self, quiz_id: int, message: dict):
+        """Push a message to every connected participant in a quiz room."""
+        if quiz_id not in self.quiz_rooms:
             return
-        
-        disconnected = set()
-        for connection in self.active_connections[session_id]:
+        dead: Set[WebSocket] = set()
+        for ws in self.quiz_rooms[quiz_id]:
             try:
-                await connection.send_json(message)
+                await ws.send_json(message)
             except Exception:
-                disconnected.add(connection)
-        
-        # Clean up disconnected clients
-        for conn in disconnected:
-            self.disconnect(conn, session_id)
-    
+                dead.add(ws)
+        for ws in dead:
+            self.disconnect(ws, quiz_id)
+
     async def send_personal_message(self, websocket: WebSocket, message: dict):
-        """Send message to specific user"""
         try:
             await websocket.send_json(message)
         except Exception:
             pass
-    
-    def get_active_participants(self, session_id: int) -> int:
-        """Get count of active participants"""
-        return len(self.active_connections.get(session_id, set()))
+
+    def get_participant_count(self, quiz_id: int) -> int:
+        return len(self.quiz_rooms.get(quiz_id, set()))
+
 
 manager = ConnectionManager()

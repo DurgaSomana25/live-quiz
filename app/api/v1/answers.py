@@ -3,12 +3,12 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User, QuizSession, Answer, Question, Quiz
 from app.schemas import AnswerSubmit, AnswerResponse
-from app.auth.jwt_handler import get_current_user
 from app.auth.permissions import require_participant
-from datetime import datetime
+from app.utils.quiz_time import get_current_question_number
 import json
 
 router = APIRouter(prefix="/api/v1/answers", tags=["answers"])
+
 
 @router.post("/submit", response_model=AnswerResponse)
 async def submit_answer(
@@ -16,55 +16,68 @@ async def submit_answer(
     current_user: User = Depends(require_participant),
     db: Session = Depends(get_db)
 ):
-    """Submit an answer for a question"""
     session = db.query(QuizSession).filter(QuizSession.id == answer_data.session_id).first()
-    
     if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Session not found"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
     if session.participant_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Unauthorized"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized")
     if session.status != "ongoing":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Session has ended"
+            detail=f"Session is '{session.status}' — cannot submit answers"
         )
-    
-    question = db.query(Question).filter(Question.id == answer_data.question_id).first()
-    
-    if not question:
+
+    quiz = db.query(Quiz).filter(Quiz.id == session.quiz_id).first()
+
+    # Enforce: quiz must be live
+    if quiz.quiz_status != "active":
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Question not found"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Quiz is not active (status: {quiz.quiz_status})"
         )
-    
-    # Check if answer already exists for this question
-    existing_answer = db.query(Answer).filter(
+
+    # Determine which question is live on the global clock
+    current_q_number = get_current_question_number(
+        quiz.total_questions, quiz.question_duration, quiz.started_at
+    )
+    if current_q_number is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Quiz time has elapsed. No more answers accepted."
+        )
+
+    # The submitted question must match what the clock says is live right now
+    current_question = db.query(Question).filter(
+        Question.quiz_id == quiz.id,
+        Question.question_number == current_q_number
+    ).first()
+
+    if answer_data.question_id != current_question.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Wrong question. The live question right now is "
+                f"Q{current_q_number} (id={current_question.id}). "
+                f"Call GET /questions/current/{{session_id}} to get it."
+            )
+        )
+
+    # Duplicate answer check
+    existing = db.query(Answer).filter(
         Answer.session_id == answer_data.session_id,
         Answer.question_id == answer_data.question_id
     ).first()
-    
-    if existing_answer:
+    if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Answer already submitted for this question"
         )
-    
-    # Evaluate answer
-    correct_options = json.loads(question.correct_options)
+
+    # Evaluate
+    correct_options = json.loads(current_question.correct_options)
     is_correct = set(answer_data.selected_options) == set(correct_options)
-    
-    quiz = db.query(Quiz).filter(Quiz.id == session.quiz_id).first()
     marks_obtained = quiz.marks_per_question if is_correct else 0.0
-    
-    # Save answer
+
     answer = Answer(
         session_id=answer_data.session_id,
         question_id=answer_data.question_id,
@@ -76,8 +89,8 @@ async def submit_answer(
     db.add(answer)
     db.commit()
     db.refresh(answer)
-    
     return answer
+
 
 @router.get("/session/{session_id}", response_model=list[AnswerResponse])
 async def get_session_answers(
@@ -85,20 +98,9 @@ async def get_session_answers(
     current_user: User = Depends(require_participant),
     db: Session = Depends(get_db)
 ):
-    """Get all answers for a session"""
     session = db.query(QuizSession).filter(QuizSession.id == session_id).first()
-    
     if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Session not found"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
     if session.participant_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Unauthorized"
-        )
-    
-    answers = db.query(Answer).filter(Answer.session_id == session_id).all()
-    return answers
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized")
+    return db.query(Answer).filter(Answer.session_id == session_id).all()

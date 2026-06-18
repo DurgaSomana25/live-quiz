@@ -10,14 +10,6 @@ async def require_admin(current_user: User = Depends(get_current_user)) -> User:
         )
     return current_user
 
-async def require_moderator(current_user: User = Depends(get_current_user)) -> User:
-    if current_user.role not in [RoleEnum.ADMIN, RoleEnum.MODERATOR]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Moderator access required"
-        )
-    return current_user
-
 async def require_participant(current_user: User = Depends(get_current_user)) -> User:
     if current_user.role != RoleEnum.PARTICIPANT:
         raise HTTPException(

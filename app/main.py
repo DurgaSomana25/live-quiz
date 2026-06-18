@@ -1,28 +1,45 @@
-from fastapi import FastAPI, Depends, WebSocket, WebSocketDisconnect, HTTPException, status
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
+from pathlib import Path
 from app.config import settings
-from app.database import engine, Base, get_db
+from app.database import engine, Base
 from app.api.v1 import auth, quiz, questions, answers, leaderboard
-from app.auth.jwt_handler import get_current_user
 from app.websocket.manager import manager
-import asyncio
+import logging
+import time
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
 # Create tables
 Base.metadata.create_all(bind=engine)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("Application startup")
+    logger.info("Application startup")
     yield
-    print("Application shutdown")
+    logger.info("Application shutdown")
 
 app = FastAPI(
     title=settings.APP_NAME,
     version="1.0.0",
     lifespan=lifespan
 )
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.time()
+    response = await call_next(request)
+    duration = (time.time() - start) * 1000
+    logger.info(f"{request.method} {request.url.path} → {response.status_code} ({duration:.1f}ms)")
+    return response
 
 # CORS middleware
 app.add_middleware(
@@ -58,44 +75,42 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
-@app.websocket("/ws/quiz/{session_id}/{user_id}")
-async def websocket_endpoint(websocket: WebSocket, session_id: int, user_id: int, db: Session = Depends(get_db)):
-    """WebSocket endpoint for real-time quiz participation"""
-    await manager.connect(websocket, session_id)
-    
+# Serve the frontend — must be after all API routes
+_frontend = Path(__file__).parent.parent / "frontend"
+if _frontend.exists():
+    app.mount("/app", StaticFiles(directory=str(_frontend), html=True), name="frontend")
+
+@app.websocket("/ws/quiz/{quiz_id}/{user_id}")
+async def websocket_endpoint(websocket: WebSocket, quiz_id: int, user_id: int):
+    """
+    Connect to a quiz room to receive real-time events:
+      - quiz_started  : admin fired the clock, includes Q1
+      - question      : new question is now live (Q2, Q3, ...)
+      - quiz_ended    : quiz clock ran out
+      - pong          : keep-alive reply
+    """
+    await manager.connect(websocket, quiz_id)
     try:
+        await manager.send_personal_message(websocket, {
+            "type": "connected",
+            "quiz_id": quiz_id,
+            "participants_online": manager.get_participant_count(quiz_id)
+        })
         while True:
             data = await websocket.receive_json()
-            
-            if data.get("type") == "answer":
-                # Broadcast answer submission
-                await manager.broadcast(session_id, {
-                    "type": "answer_received",
-                    "user_id": user_id,
-                    "question_id": data.get("question_id")
-                })
-            
+            if data.get("type") == "ping":
+                await manager.send_personal_message(websocket, {"type": "pong"})
             elif data.get("type") == "get_status":
-                # Send current session status
-                active_participants = manager.get_active_participants(session_id)
                 await manager.send_personal_message(websocket, {
                     "type": "status",
-                    "active_participants": active_participants,
-                    "session_id": session_id
+                    "quiz_id": quiz_id,
+                    "participants_online": manager.get_participant_count(quiz_id)
                 })
-            
-            elif data.get("type") == "ping":
-                # Keep-alive
-                await manager.send_personal_message(websocket, {
-                    "type": "pong"
-                })
-    
     except WebSocketDisconnect:
-        manager.disconnect(websocket, session_id)
-    
+        manager.disconnect(websocket, quiz_id)
     except Exception as e:
-        manager.disconnect(websocket, session_id)
-        print(f"WebSocket error: {str(e)}")
+        manager.disconnect(websocket, quiz_id)
+        logger.error(f"WebSocket error quiz {quiz_id}: {e}")
 
 if __name__ == "__main__":
     import uvicorn
